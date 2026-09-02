@@ -1,151 +1,145 @@
 # AMSA — Agentic Materials Simulation Assistant
 
-Implementation of the architecture in `AMSA_Architecture_Implementation_Design_Specification.docx`,
-using **Groq** (free tier) as the LLM for the interpretation layer, with everything
-scientific (structure building, parameters, pseudopotentials, QE/SLURM files)
-done deterministically in Python — never by the LLM.
+AMSA turns a single natural-language request — *"Build a 3×3 Fe(110) slab with
+substitutional Ni in the top layer and run a PBE relax"* — into a reproducible
+Quantum ESPRESSO + SLURM project folder, ready for human review.
 
-## 1. Get a free Groq API key (required)
+It's a **human-in-the-loop** agentic system built around one core principle:
+**LLM reasoning is kept strictly separate from deterministic scientific
+execution.** The LLM (via Groq's free API) only parses intent into a
+structured request. Everything that actually matters scientifically —
+structure construction, parameter selection, pseudopotential compatibility,
+input-file generation — is done by deterministic Python (ASE, pymatgen,
+rule-based logic), never guessed by the model.
 
-1. Go to **https://console.groq.com** and sign up (email only, no credit card).
-2. Verify your email.
-3. In the left sidebar, open **API Keys**.
-4. Click **Create API Key**, name it (e.g. `amsa-dev`), and copy it immediately —
-   Groq only shows it once. Keys look like `gsk_...`.
-5. Free tier gives you access to all models with rate limits (roughly 30
-   requests/minute and a daily token cap) — plenty for this project.
+The first version does **not** submit to an HPC cluster. It prepares
+everything and hands the reviewed package back to a human.
 
-Then:
+## How it works
 
-```bash
-cp .env.example .env
-# edit .env and paste your key:
-# GROQ_API_KEY=gsk_...
+```
+Natural-language request
+        │
+        ▼
+LLM parses intent (Groq)  ──►  structured SimulationRequest
+        │
+        ▼
+Deterministic completeness check ──► asks only for what's missing
+        │
+        ▼
+ASE / pymatgen build the structure
+        │
+        ▼
+Parameter engine resolves values (with full provenance: user / rule / derived)
+        │
+        ▼
+Pseudopotential manager selects compatible UPF files
+        │
+        ▼
+Quantum ESPRESSO input + SLURM script generated deterministically
+        │
+        ▼
+Reproducible package: structure files + pw.in + job.slurm + metadata.json
+        │
+        ▼
+Human reviews and submits manually
 ```
 
-The default model is `llama-3.3-70b-versatile` (good accuracy/speed balance).
-You can swap to a faster/smaller one (e.g. `openai/gpt-oss-20b`) by setting
-`GROQ_MODEL` in `.env` — see https://console.groq.com/docs/models for the
-current list, since Groq adds/retires models over time.
+Full architecture rationale is in
+[`AMSA_Architecture_Implementation_Design_Specification.docx`](./AMSA_Architecture_Implementation_Design_Specification.docx).
 
-## 2. Install dependencies
+## Features
 
-### Recommended: conda / miniforge (avoids compiling scipy from source)
-If you don't have conda yet, install **Miniforge** (free, no license issues):
-https://github.com/conda-forge/miniforge#download
+- Natural-language → structured `SimulationRequest` via Groq (free tier)
+- Asks only for genuinely missing information, never re-asks what you already gave
+- ASE/pymatgen structure builder: bulk, slabs, supercells, substitutional
+  doping, adsorbate placement, layer constraints
+- Rule-based parameter engine with full provenance tracking (`user` /
+  `rule_recommendation` / `derived`)
+- Pseudopotential source adapter (SSSP by default)
+- Deterministic Quantum ESPRESSO (`pw.in`) and SLURM script generation via
+  Jinja2 templates
+- Reproducible output package with `metadata.json` and a per-run README
+- Every generated parameter's origin is traceable — nothing is a silent guess
+
+## Requirements
+
+- Python 3.11
+- A free [Groq API key](https://console.groq.com) (no credit card required)
+- Conda/Miniforge (recommended) or a modern C/C++ toolchain if using plain pip
+
+## Quick start
 
 ```bash
+git clone https://github.com/YakubuNaat/amsa.git
+cd amsa
+
+# Recommended: conda avoids compiling scipy from source
 conda env create -f environment.yml
 conda activate amsa
-```
 
-This installs numpy/scipy/ase/pymatgen as prebuilt conda-forge binaries (no
-C compiler involved at all), then installs Groq/LangGraph/LangChain via pip
-*inside* that same environment (those don't have conda-forge builds).
+# Add your Groq API key
+cp .env.example .env
+# edit .env: GROQ_API_KEY=gsk_...
 
-### Alternative: plain pip + venv
-Only do this if you have a modern C/C++ toolchain (e.g. Xcode ≥15 command
-line tools on macOS, or build-essential on Linux) — pip will otherwise try
-to compile scipy from source and can fail like:
-`SciPy requires clang >= 15.0`.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-## 3. Run it
-
-```bash
 python main.py "Build a 3x3 Fe(110) slab and run a PBE relax"
 ```
 
-The agent will:
-- call Groq to parse your sentence into a structured `SimulationRequest`
-- ask you (in the terminal) only for whatever's missing
-- build the structure with ASE, resolve parameters, select pseudopotentials
-- write a reproducible package to `output/<name>/`
+If you don't use conda, see [`environment.yml`](./environment.yml) vs.
+[`requirements.txt`](./requirements.txt) — plain `pip install -r
+requirements.txt` requires a modern compiler (SciPy ≥1.15 needs Clang ≥15)
+and can fail on older systems.
 
-Review `output/<name>/README.md` inside the generated package before doing
-anything with the SLURM script.
+## Manual steps required
 
----
+By design, a few things need a human (or a second free account) rather than
+being automated silently:
 
-## 4. Parts YOU must do manually
+| Step | Why | What to do |
+|---|---|---|
+| **Pseudopotentials** | SSSP has no scripted bulk download | Download the [SSSP Efficiency library](https://www.materialscloud.org/discover/sssp/table/efficiency) and place `.UPF` files in `config/pseudopotentials/sssp_efficiency/` |
+| **Compound bulk structures** (optional) | ASE's built-in `bulk()` only covers simple elemental lattices | Get a free [Materials Project API key](https://next-gen.materialsproject.org/api), set `MP_API_KEY` in `.env` |
+| **Interstitial doping** | Site placement needs human/chemical judgment, not a guess | AMSA stops and explains; use pymatgen's `VoronoiInterstitialGenerator` and verify visually |
+| **HPC/SLURM profile** | Partition names, modules, and executables vary per cluster | Edit `config/hpc_profiles.yaml` with your cluster's real values |
+| **Final review** | Adsorbate-site placement is an approximation beyond simple terminations | Open `system.cif` in VESTA/OVITO/ASE GUI before running `sbatch job.slurm` |
 
-This spec (section 19) deliberately keeps the LLM out of anything
-scientifically consequential. A few pieces genuinely need a human, or a
-second free account, before the pipeline is fully useful:
+AMSA never calls `sbatch` for you — you always review and submit manually.
 
-### 4a. Pseudopotentials (required before QE generation will succeed)
-`services/pseudo_manager.py` expects `.UPF` files to already be sitting in
-`config/pseudopotentials/sssp_efficiency/`. Groq has nothing to do with
-pseudopotentials, and SSSP doesn't offer a stable scripted bulk-download.
-**Manual step:**
-1. Go to https://www.materialscloud.org/discover/sssp/table/efficiency
-2. Download the SSSP Efficiency (or Precision) library archive (free, no
-   account needed for the download itself).
-3. Unzip so each element has its own file, e.g.
-   `config/pseudopotentials/sssp_efficiency/Fe.upf`, `O.upf`, etc.
+## Project layout
 
-If a pseudopotential is missing, `main.py` will stop and tell you exactly
-which element is unresolved rather than guessing.
+```
+amsa/
+├── app/          # config & settings
+├── agent/        # LangGraph orchestration, Groq parser, question routing
+├── schemas/      # Pydantic request/plan schemas
+├── services/     # structure builder, parameter engine, pseudopotential
+│                   manager, QE/SLURM generators, package builder
+├── validators/   # completeness, structure, and parameter validation
+├── templates/    # Jinja2 templates for pw.in and job.slurm
+├── config/       # defaults.yaml, hpc_profiles.yaml, pseudopotential sources
+└── tests/        # pytest unit tests
+```
 
-### 4b. Bulk structures for compounds (optional but recommended)
-`ase.build.bulk()` (the built-in fallback) only knows simple elemental
-lattices (bcc/fcc/hcp/diamond/etc.). For real compounds (oxides, alloys,
-minerals...), the code tries the Materials Project API instead.
-**Manual step (optional, also free):**
-1. Get a free API key at https://next-gen.materialsproject.org/api
-2. Add to `.env`: `MP_API_KEY=your_key_here`
-3. `pip install mp-api pymatgen` (pymatgen is already in requirements.txt)
+## Status
 
-Without this, requests for compounds AMSA can't find will raise a clear
-`StructureBuildError` telling you to supply a CIF by hand instead.
+Implements phases 1–9 of the project roadmap: schemas, LLM parsing,
+completeness-driven clarification, structure building, parameter resolution
+with provenance, pseudopotential selection, QE/SLURM generation, and
+packaging.
 
-### 4c. Interstitial doping
-Deliberately **not automated**. The spec calls for
-"pymatgen + validation... avoid arbitrary placement" — this needs a human
-to pick/verify a chemically sensible interstitial site (e.g. via
-pymatgen's `VoronoiInterstitialGenerator`, then visual check). If your
-request includes interstitial doping, AMSA will build everything else and
-stop with instructions rather than guess a site.
+Not yet implemented (intentionally, per the design spec): ML-based parameter
+recommendation and automated HPC submission/monitoring.
 
-### 4d. HPC-specific SLURM details
-`config/hpc_profiles.yaml` ships with placeholder values (partition name,
-module names, executable path). **Manual step:** ask your cluster admin
-for the real partition name, the correct `module load` line for Quantum
-ESPRESSO, and update that YAML file. AMSA will never submit the job for
-you (per spec section 19) — you run `sbatch job.slurm` yourself after
-reviewing it.
+## Tech stack
 
-### 4e. Visual inspection before submission
-Always open `output/<name>/00_structure/system.cif` in a visualizer
-(VESTA, OVITO, or `ase gui system.cif`) before submitting. AMSA validates
-interatomic distances and cell sanity automatically, but adsorbate-site
-placement in particular is an approximation for anything beyond simple
-terminations — worth a human glance.
+Python · [Groq API](https://console.groq.com) · [LangGraph](https://github.com/langchain-ai/langgraph) · [Pydantic](https://docs.pydantic.dev) · [ASE](https://wiki.fysik.dtu.dk/ase/) · [pymatgen](https://pymatgen.org) · [Quantum ESPRESSO](https://www.quantum-espresso.org) · Jinja2 · SLURM
 
----
+## Contributing
 
-## 5. What's implemented vs. roadmap
+Issues and PRs are welcome — this is an early-stage MVP. See the "Status"
+section above for what's out of scope for now (ML recommendations, HPC
+auto-submission).
 
-Implemented (Phases 1–9 of the spec's roadmap, section 15):
-schemas, Groq-based parsing, completeness validation + targeted questions,
-ASE/pymatgen structure builder (bulk/slab/supercell/substitutional
-doping/adsorbate placement/constraints), rule-based parameter engine with
-provenance tracking, pseudopotential source adapter, deterministic QE and
-SLURM generation, and packaging with metadata.json + README.
+## License
 
-Not yet implemented (later roadmap phases, intentionally):
-ML-based parameter recommendation (Phase 11), automated HPC submission and
-monitoring (Phase 12). Interstitial doping site-generation is scaffolded
-but requires the manual step above (4c).
-
-## 6. Project layout
-
-See `AMSA_Architecture_Implementation_Design_Specification.docx` section 5
-for the full rationale; the code mirrors it 1:1 (`app/`, `agent/`,
-`schemas/`, `services/`, `validators/`, `templates/`, `config/`, `tests/`).
+See [LICENSE](./LICENSE).
