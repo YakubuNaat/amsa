@@ -1,0 +1,49 @@
+&CONTROL
+  calculation   = '{{ calculation_type }}'
+  prefix        = '{{ prefix }}'
+  outdir        = './out'
+  pseudo_dir    = './pseudo'
+  tstress       = .true.
+  tprnfor       = .true.
+/
+&SYSTEM
+  ibrav         = 0
+  nat           = {{ nat }}
+  ntyp          = {{ ntyp }}
+  ecutwfc       = {{ ecutwfc }}
+  ecutrho       = {{ ecutrho }}
+  occupations   = '{{ occupations }}'
+  smearing      = '{{ smearing }}'
+  degauss       = {{ degauss }}
+{%- if spin == 'collinear' %}
+  nspin         = 2
+{%- endif %}
+/
+&ELECTRONS
+  conv_thr      = {{ conv_thr }}
+  mixing_beta   = {{ mixing_beta }}
+/
+{%- if calculation_type in ['relax', 'vc-relax'] %}
+&IONS
+  ion_dynamics  = 'bfgs'
+{%- endif %}
+{%- if calculation_type == 'vc-relax' %}
+&CELL
+  cell_dynamics = 'bfgs'
+  press_conv_thr = {{ press_conv_thr }}
+{%- endif %}
+
+ATOMIC_SPECIES
+{% for sp in species -%}
+{{ sp.symbol }}  {{ sp.mass }}  {{ sp.upf_filename }}
+{% endfor %}
+ATOMIC_POSITIONS angstrom
+{% for atom in atoms -%}
+{{ atom.symbol }}  {{ "%.8f"|format(atom.x) }}  {{ "%.8f"|format(atom.y) }}  {{ "%.8f"|format(atom.z) }}{% if atom.fixed %}  0  0  0{% endif %}
+{% endfor %}
+CELL_PARAMETERS angstrom
+{% for v in cell -%}
+{{ "%.8f"|format(v[0]) }}  {{ "%.8f"|format(v[1]) }}  {{ "%.8f"|format(v[2]) }}
+{% endfor %}
+K_POINTS automatic
+{{ kpoints }} 0 0 0

@@ -1,0 +1,22 @@
+# Pseudopotential source adapter configuration (spec section 11).
+# SSSP (Standard Solid-State Pseudopotentials) is the recommended default:
+# free, well-validated, and used widely with Quantum ESPRESSO.
+#
+# MANUAL STEP: SSSP requires accepting their terms and downloading the
+# library archive by hand once (no API key needed, but no scripted bulk
+# download is officially provided either). See README.md "Manual steps".
+
+active_source: sssp_efficiency
+
+sources:
+  sssp_efficiency:
+    name: "SSSP Efficiency 1.3.0 (PBE)"
+    base_url: "https://legacy-archive.materialscloud.org/record/2023.65"
+    local_cache_dir: "./config/pseudopotentials/sssp_efficiency"
+    xc_functional: PBE
+
+  sssp_precision:
+    name: "SSSP Precision 1.3.0 (PBE)"
+    base_url: "https://legacy-archive.materialscloud.org/record/2023.65"
+    local_cache_dir: "./config/pseudopotentials/sssp_precision"
+    xc_functional: PBE

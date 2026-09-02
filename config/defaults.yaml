@@ -1,0 +1,15 @@
+# Deterministic scientific defaults / rules (spec section 10).
+# Edit these to match your group's conventions.
+
+xc_functional: PBE
+smearing: gaussian
+degauss: 0.01           # Ry
+occupations: smearing
+conv_thr: 1.0e-8        # Ry, SCF energy convergence
+forc_conv_thr: 1.0e-4   # Ry/Bohr, ionic relaxation
+press_conv_thr: 0.5     # kbar, cell relaxation
+mixing_beta: 0.4
+spin: none
+kpoints_bulk: "6x6x6"
+kpoints_slab: "4x4x1"
+ecutrho_multiplier: 8   # ecutrho = ecutwfc * this, when only ecutwfc is known/derived

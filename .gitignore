@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+output/
+config/pseudopotentials/
+.venv/
+.DS_Store

@@ -1,0 +1,17 @@
+# HPC profile used by the SLURM generator (spec section 13).
+# Edit to match YOUR cluster -- these are placeholder values.
+# *** MANUAL STEP: confirm partition name, module names, and QE executable
+# path with your HPC administrator before submitting any job. ***
+
+active_profile: generic_cluster
+
+profiles:
+  generic_cluster:
+    partition: "compute"
+    nodes: 1
+    ntasks_per_node: 32
+    memory: "64G"
+    walltime: "24:00:00"
+    modules:
+      - "quantum-espresso/7.3"
+    qe_exec: "pw.x"
